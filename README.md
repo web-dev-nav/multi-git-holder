@@ -39,27 +39,41 @@ about 50 KB and starts instantly.
 
 ## First time, with no SSH keys at all
 
-If you have never set up SSH for GitHub, this is the whole process. Do it once
-per account.
+If you have never set up SSH for GitHub, **Accounts → Add account...** walks you
+through it in four steps. Do it once per account.
 
-1. **Accounts → Add account...**
-2. Type the **GitHub username** exactly as it appears in your profile URL.
-   Leave name and email blank to default to the GitHub noreply address.
-3. Choose **Generate a new key**, then **Add**.
-4. The app creates an ed25519 key, copies the public half to your clipboard and
-   offers to open `github.com/settings/ssh/new`.
-   **Sign in to GitHub as that account before pasting.** For your second
-   account use a private/incognito window, or sign out of the first one —
-   this is the step people get wrong.
-5. Paste, give the key any title, **Add SSH key**.
-6. Back in the app, press **Test connection**. You want `OK - Hi <username>!`
+| | |
+|---|---|
+| ![Step 1](docs/wizard-1-account.png) | ![Step 2](docs/wizard-2-key.png) |
+| ![Step 3](docs/wizard-3-github.png) | ![Step 4](docs/wizard-4-verify.png) |
 
-The app asks GitHub who each key belongs to and compares that against what you
-typed, so a mistyped username is caught immediately and offered as a one-click
-correction rather than silently breaking URL matching later.
+**1. Which account.** The username exactly as it appears in your profile URL.
+Leave name and email blank to use the GitHub noreply address, which keeps
+working even with *Keep my email private* turned on.
 
-**Already have working keys?** Skip all of that and press **Detect keys...** —
-it tests every key in `~/.ssh` against GitHub and adds the ones that work.
+**2. Choose a key.** *Generate a new key* if you have never set up SSH — it
+creates an ed25519 key in your `.ssh` folder. Otherwise point at one you have.
+
+**3. Give the key to GitHub.** The public half is already on your clipboard and
+shown on screen; the private half never leaves your machine. **Sign in to
+GitHub as this account before pasting** — for a second account use a private
+window or sign out first. This is the step people get wrong.
+
+**4. Check it works.** The app asks GitHub who the key belongs to. You want
+`Hi <username>!` If GitHub reports a different username than you typed, the
+account is saved under GitHub's answer — URL matching needs it exact, and a
+typo would otherwise stop every repo for that account from being recognised.
+
+**Already have working keys?** Skip all of it and press **Detect keys...** — it
+tests every key in `~/.ssh` against GitHub and adds the ones that work.
+
+### Removing an account
+
+**Accounts → Remove** takes it out of the routing and deletes the identity file
+it created. Repositories keep working; they just stop being assigned to that
+account automatically. If the key lives in your `.ssh` folder, it offers to
+delete that too — it never touches a key you pointed at from elsewhere, and it
+reminds you that GitHub keeps its own copy until you remove it there as well.
 
 ## Quick start
 

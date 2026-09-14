@@ -12,6 +12,6 @@ if not exist "%~dp0bin" mkdir "%~dp0bin"
 "%CSC%" /nologo /target:winexe /out:"%~dp0bin\GhAccounts.exe" /win32icon:"%~dp0src\app.ico" ^
   /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
   /r:System.Core.dll /r:System.Web.Extensions.dll ^
-  "%~dp0src\GhAccounts.cs" "%~dp0src\Ui.cs"
+  "%~dp0src\GhAccounts.cs" "%~dp0src\Ui.cs" "%~dp0src\Wizard.cs"
 if errorlevel 1 exit /b 1
 echo Built %~dp0bin\GhAccounts.exe

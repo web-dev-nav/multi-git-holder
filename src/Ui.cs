@@ -460,44 +460,14 @@ namespace GhAccounts
 
         void AddAccount()
         {
-            var d = new AccountDialog(cfg, null);
+            var d = new AccountWizard(cfg);
             if (d.ShowDialog(this) != DialogResult.OK) return;
             foreach (Account a in cfg.Accounts)
                 if (a.Id == d.Result.Id)
                 { MessageBox.Show(this, "That account is already configured."); return; }
             cfg.Accounts.Add(d.Result);
             Persist(); RefreshAccounts(); Rescan();
-            string pub = Gh.PubKey(d.Result);
-            if (pub.Length > 0 && d.GeneratedKey)
-            {
-                Clipboard.SetText(pub);
-                if (MessageBox.Show(this,
-                        "A new key was generated and its public half is on your clipboard.\n\n" +
-                        "Open github.com/settings/ssh/new now to paste it?\n" +
-                        "(Sign in as " + d.Result.Org + " first.)",
-                        "Add the key to GitHub", MessageBoxButtons.YesNo) == DialogResult.Yes)
-                    Process.Start("https://github.com/settings/ssh/new");
-            }
-            Say("Checking the key against GitHub...");
-            Cursor = Cursors.WaitCursor;
-            string who2;
-            bool ok2 = Gh.Verify(d.Result, out who2);
-            Cursor = Cursors.Default;
-            if (ok2)
-            {
-                if (!ReconcileOrg(d.Result, who2)) { RefreshAccounts(); Rescan(); }
-                Say("Signed in as " + who2 + ". Ready to use.");
-            }
-            else
-            {
-                MessageBox.Show(this,
-                    "Added, but GitHub did not accept the key yet:\n\n  " + who2 +
-                    "\n\nIf you just generated it, add the public key at\n" +
-                    "github.com/settings/ssh/new (signed in as " + d.Result.Org + "),\n" +
-                    "then press \"Test connection\".",
-                    "Not connected yet", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                Say("Added " + d.Result.Org + " - key not accepted by GitHub yet.");
-            }
+            Say("Added " + d.Result.Org + " - commits as " + d.Result.Email + ".");
         }
 
         void EditAccount()
@@ -515,9 +485,45 @@ namespace GhAccounts
             if (lvAccounts.SelectedItems.Count == 0) { Say("Select an account."); return; }
             var a = lvAccounts.SelectedItems[0].Tag as Account;
             if (MessageBox.Show(this,
-                "Remove " + a.Org + " from this app?\n\nThe SSH key file is left on disk.",
-                "Remove account", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+                    "Remove " + a.Org + " from this app?\n\n" +
+                    "Repositories keep working; they just stop being routed to\n" +
+                    "this account automatically.",
+                    "Remove account", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) != DialogResult.Yes) return;
+
             cfg.Accounts.Remove(a);
+
+            string idFile = Path.Combine(Env.Home, ".gitconfig-" + a.Id);
+            try { if (File.Exists(idFile)) File.Delete(idFile); } catch { }
+
+            // Only offer to delete a key that lives in the ssh folder - never one
+            // the user pointed at from somewhere else.
+            bool ours = false;
+            try
+            {
+                ours = string.Equals(Path.GetDirectoryName(a.Key).TrimEnd('\\'),
+                                     Env.SshDir.TrimEnd('\\'),
+                                     StringComparison.OrdinalIgnoreCase);
+            }
+            catch { }
+            if (ours && File.Exists(a.Key) &&
+                MessageBox.Show(this,
+                    "Also delete the key file?\n\n  " + Path.GetFileName(a.Key) +
+                    "\n\nOnly do this if no other machine or service uses it.\n" +
+                    "GitHub keeps its copy until you remove it there too.",
+                    "Delete key file", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning) == DialogResult.Yes)
+            {
+                try
+                {
+                    File.Delete(a.Key);
+                    if (File.Exists(a.Key + ".pub")) File.Delete(a.Key + ".pub");
+                    Say("Removed " + a.Org + " and deleted " + Path.GetFileName(a.Key) + ".");
+                }
+                catch (Exception ex) { MessageBox.Show(this, "Could not delete the key:\n" + ex.Message); }
+            }
+            else Say("Removed " + a.Org + ". Key file left in place.");
+
             Persist(); RefreshAccounts(); Rescan();
         }
 
@@ -768,6 +774,28 @@ namespace GhAccounts
                 }
                 catch (Exception ex)
                 { Console.WriteLine("FAILED: " + ex.Message); return 1; }
+            }
+
+            if (args.Contains("--shotwiz"))
+            {
+                int k = args.IndexOf("--shotwiz");
+                var wiz = new AccountWizard(Store.Load());
+                int wstep = args.Count > k + 2 ? int.Parse(args[k + 2]) : 0;
+                wiz.Show(); Application.DoEvents();
+                if (wstep > 0)
+                    wiz.Demo(wstep, "octocat",
+                        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyForTheDocsOnlyNotReal01234 " +
+                        "octocat@users.noreply.github.com",
+                        "Connected. GitHub says: Hi octocat!\n\n" +
+                        "Commits will be authored as:\n  octocat <octocat@users.noreply.github.com>\n\n" +
+                        "Press Finish to add the account.",
+                        Color.FromArgb(0, 110, 40));
+                Application.DoEvents();
+                var wb = new Bitmap(wiz.Width, wiz.Height);
+                wiz.DrawToBitmap(wb, new Rectangle(0, 0, wiz.Width, wiz.Height));
+                wb.Save(args[k + 1], System.Drawing.Imaging.ImageFormat.Png);
+                wiz.Close();
+                return 0;
             }
 
             if (args.Contains("--shotdlg"))
