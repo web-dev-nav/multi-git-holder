@@ -27,10 +27,17 @@ namespace GhAccounts
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(520, 300);
+            ClientSize = new Size(520, 356);
             Font = new Font("Segoe UI", 9f);
 
-            int y = 16;
+            int y = 12;
+            Add(new Label
+            {
+                Left = 16, Top = y, Width = 484, Height = 44, ForeColor = Color.DimGray,
+                Text = "Sign in to GitHub as this account in your browser first.\n" +
+                       "For a second account use a private/incognito window, or sign out first."
+            });
+            y += 50;
             Add(new Label { Text = "GitHub username", Left = 16, Top = y + 3, Width = 130 });
             tOrg = new TextBox { Left = 150, Top = y, Width = 350 };
             Add(tOrg); y += 32;
@@ -52,7 +59,7 @@ namespace GhAccounts
 
             var gb = new GroupBox { Text = "SSH key", Left = 16, Top = y, Width = 484, Height = 100 };
             rExisting = new RadioButton { Text = "Use existing key file", Left = 12, Top = 22, Width = 200, Checked = true };
-            rGenerate = new RadioButton { Text = "Generate a new key for this account", Left = 12, Top = 68, Width = 300 };
+            rGenerate = new RadioButton { Text = "Generate a new key (no keys yet? pick this)", Left = 12, Top = 68, Width = 320 };
             tKey = new TextBox { Left = 32, Top = 44, Width = 330 };
             var bBrowse = new Button { Text = "Browse...", Left = 372, Top = 42, Width = 90 };
             bBrowse.Click += delegate
@@ -65,8 +72,8 @@ namespace GhAccounts
             gb.Controls.AddRange(new Control[] { rExisting, tKey, bBrowse, rGenerate });
             Add(gb);
 
-            var ok = new Button { Text = editing ? "Save" : "Add", Left = 320, Top = 258, Width = 90, DialogResult = DialogResult.None };
-            var cancel = new Button { Text = "Cancel", Left = 416, Top = 258, Width = 90, DialogResult = DialogResult.Cancel };
+            var ok = new Button { Text = editing ? "Save" : "Add", Left = 320, Top = 314, Width = 90, DialogResult = DialogResult.None };
+            var cancel = new Button { Text = "Cancel", Left = 416, Top = 314, Width = 90, DialogResult = DialogResult.Cancel };
             ok.Click += OnOk;
             Add(ok); Add(cancel);
             AcceptButton = ok; CancelButton = cancel;
@@ -471,7 +478,26 @@ namespace GhAccounts
                         "Add the key to GitHub", MessageBoxButtons.YesNo) == DialogResult.Yes)
                     Process.Start("https://github.com/settings/ssh/new");
             }
-            Say("Added " + d.Result.Org + ". Use \"Test connection\" to confirm the key works.");
+            Say("Checking the key against GitHub...");
+            Cursor = Cursors.WaitCursor;
+            string who2;
+            bool ok2 = Gh.Verify(d.Result, out who2);
+            Cursor = Cursors.Default;
+            if (ok2)
+            {
+                if (!ReconcileOrg(d.Result, who2)) { RefreshAccounts(); Rescan(); }
+                Say("Signed in as " + who2 + ". Ready to use.");
+            }
+            else
+            {
+                MessageBox.Show(this,
+                    "Added, but GitHub did not accept the key yet:\n\n  " + who2 +
+                    "\n\nIf you just generated it, add the public key at\n" +
+                    "github.com/settings/ssh/new (signed in as " + d.Result.Org + "),\n" +
+                    "then press \"Test connection\".",
+                    "Not connected yet", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Say("Added " + d.Result.Org + " - key not accepted by GitHub yet.");
+            }
         }
 
         void EditAccount()
@@ -509,11 +535,36 @@ namespace GhAccounts
                     it.SubItems[3].Text = ok ? "OK - Hi " + who + "!" : "FAILED - " + who;
                     it.ForeColor = ok ? Color.FromArgb(0, 110, 40) : Color.Firebrick;
                     if (ok && !string.Equals(who, a.Org, StringComparison.OrdinalIgnoreCase))
+                    {
                         it.SubItems[3].Text = "key belongs to " + who + ", not " + a.Org;
+                        if (ReconcileOrg(a, who)) { Say("Corrected to " + who + "."); return; }
+                    }
                 }
                 Say("Connection test finished.");
             }
             finally { Cursor = Cursors.Default; }
+        }
+
+        /// <summary>GitHub is the authority on who a key belongs to - offer to
+        /// correct a mistyped username rather than failing quietly later.</summary>
+        bool ReconcileOrg(Account a, string who)
+        {
+            if (string.Equals(a.Org, who, StringComparison.OrdinalIgnoreCase)) return false;
+            if (MessageBox.Show(this,
+                    "This key authenticates as \"" + who + "\", but the account is set up as \"" +
+                    a.Org + "\".\n\nURL matching uses the username, so it must be exact.\n\n" +
+                    "Change this account to \"" + who + "\"?",
+                    "Username mismatch", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning) != DialogResult.Yes) return false;
+            string oldEmail = a.Org + "@users.noreply.github.com";
+            if (string.Equals(a.Email, oldEmail, StringComparison.OrdinalIgnoreCase))
+                a.Email = who + "@users.noreply.github.com";
+            if (string.Equals(a.Name, a.Org, StringComparison.OrdinalIgnoreCase)) a.Name = who;
+            a.Org = who;
+            a.Id = new string(who.ToLowerInvariant()
+                .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
+            Persist(); RefreshAccounts(); Rescan();
+            return true;
         }
 
         void DetectKeys()
@@ -717,6 +768,18 @@ namespace GhAccounts
                 }
                 catch (Exception ex)
                 { Console.WriteLine("FAILED: " + ex.Message); return 1; }
+            }
+
+            if (args.Contains("--shotdlg"))
+            {
+                int j = args.IndexOf("--shotdlg");
+                var dlg = new AccountDialog(new Config(), null);
+                dlg.Show(); Application.DoEvents();
+                var b = new Bitmap(dlg.Width, dlg.Height);
+                dlg.DrawToBitmap(b, new Rectangle(0, 0, dlg.Width, dlg.Height));
+                b.Save(args[j + 1], System.Drawing.Imaging.ImageFormat.Png);
+                dlg.Close();
+                return 0;
             }
 
             if (args.Contains("--shot"))

@@ -37,6 +37,30 @@ and adds Desktop and Start Menu shortcuts.
 Git for Windows. No .NET SDK, no runtime installer, no admin rights. The exe is
 about 50 KB and starts instantly.
 
+## First time, with no SSH keys at all
+
+If you have never set up SSH for GitHub, this is the whole process. Do it once
+per account.
+
+1. **Accounts → Add account...**
+2. Type the **GitHub username** exactly as it appears in your profile URL.
+   Leave name and email blank to default to the GitHub noreply address.
+3. Choose **Generate a new key**, then **Add**.
+4. The app creates an ed25519 key, copies the public half to your clipboard and
+   offers to open `github.com/settings/ssh/new`.
+   **Sign in to GitHub as that account before pasting.** For your second
+   account use a private/incognito window, or sign out of the first one —
+   this is the step people get wrong.
+5. Paste, give the key any title, **Add SSH key**.
+6. Back in the app, press **Test connection**. You want `OK - Hi <username>!`
+
+The app asks GitHub who each key belongs to and compares that against what you
+typed, so a mistyped username is caught immediately and offered as a one-click
+correction rather than silently breaking URL matching later.
+
+**Already have working keys?** Skip all of that and press **Detect keys...** —
+it tests every key in `~/.ssh` against GitHub and adds the ones that work.
+
 ## Quick start
 
 **1. Add your accounts.** *Detect keys...* tries every key in `~/.ssh` against
