@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace GhAccounts
@@ -140,6 +141,16 @@ namespace GhAccounts
         {
             firstRun = !File.Exists(Env.ConfigPath);
             cfg = Store.Load();
+            if (Store.LoadError != null)
+            {
+                MessageBox.Show(
+                    "Your saved accounts at " + Env.ConfigPath + " could not be read:\n\n" +
+                    Store.LoadError + "\n\n" +
+                    "Starting with an empty account list. Nothing has been overwritten yet - " +
+                    "if this is unexpected, close the app and check that file before changing " +
+                    "anything here.",
+                    "GitHub Accounts", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
             Text = "GitHub Accounts";
             ClientSize = new Size(1040, 580);
             MinimumSize = new Size(760, 420);
@@ -232,7 +243,15 @@ namespace GhAccounts
             tabs.SelectedIndex = 1;
         }
 
-        void Say(string msg) { statusLabel.Text = msg; statusLabel.Refresh(); }
+        static readonly Color statusNormal = Color.FromArgb(50, 50, 50);
+        static readonly Color statusError = Color.FromArgb(178, 30, 30);
+        void Say(string msg) { Say(msg, false); }
+        void Say(string msg, bool isError)
+        {
+            statusLabel.Text = msg;
+            statusLabel.ForeColor = isError ? statusError : statusNormal;
+            statusLabel.Refresh();
+        }
 
         void RebuildDots()
         {
@@ -295,7 +314,13 @@ namespace GhAccounts
             lvRepos.DoubleClick += delegate
             {
                 RepoInfo r = SelectedRepo();
-                if (r != null && r.Mismatch) { Repos.Switch(cfg, r.Path, r.RemoteAcct); Rescan(); }
+                if (r != null && r.Mismatch)
+                {
+                    string err = Repos.Switch(cfg, r.Path, r.RemoteAcct);
+                    Rescan();
+                    if (err != null) Say(r.Name + ": " + err, true);
+                    else Say(string.Format("Switched {0} to {1}.", r.Name, r.RemoteAcct.Org));
+                }
                 else ApplySelected();
             };
             page.Controls.Add(lvRepos);
@@ -315,24 +340,42 @@ namespace GhAccounts
             { Say("Pick an account first."); return; }
             Account a = cfg.Accounts[cbTarget.SelectedIndex];
             int n = 0;
+            var failed = new List<string>();
             foreach (ListViewItem it in lvRepos.SelectedItems)
             {
                 var r = it.Tag as RepoInfo;
-                if (r != null) { Repos.Switch(cfg, r.Path, a); n++; }
+                if (r == null) continue;
+                string err = Repos.Switch(cfg, r.Path, a);
+                if (err != null) failed.Add(r.Name + ": " + err);
+                else n++;
             }
-            if (n == 0) { Say("Select one or more repositories."); return; }
+            if (n == 0 && failed.Count == 0) { Say("Select one or more repositories."); return; }
             Rescan();
-            Say(string.Format("Switched {0} repo(s) to {1}.", n, a.Org));
+            if (failed.Count == 0)
+                Say(string.Format("Switched {0} repo(s) to {1}.", n, a.Org));
+            else
+                Say(string.Format("Switched {0} repo(s) to {1}; {2} failed - {3}",
+                    n, a.Org, failed.Count, string.Join("; ", failed.ToArray())), true);
         }
 
         void FixAll()
         {
             int n = 0;
+            var failed = new List<string>();
             foreach (RepoInfo r in repos)
-                if (r.Mismatch) { Repos.Switch(cfg, r.Path, r.RemoteAcct); n++; }
+            {
+                if (!r.Mismatch) continue;
+                string err = Repos.Switch(cfg, r.Path, r.RemoteAcct);
+                if (err != null) failed.Add(r.Name + ": " + err);
+                else n++;
+            }
             Rescan();
-            Say(n == 0 ? "Nothing to fix - every repo matches its remote."
-                       : string.Format("Fixed {0} mismatched repo(s).", n));
+            if (failed.Count > 0)
+                Say(string.Format("Fixed {0}, {1} failed - {2}",
+                    n, failed.Count, string.Join("; ", failed.ToArray())), true);
+            else
+                Say(n == 0 ? "Nothing to fix - every repo matches its remote."
+                           : string.Format("Fixed {0} mismatched repo(s).", n));
         }
 
         void Rescan()
@@ -830,6 +873,17 @@ namespace GhAccounts
                 return 0;
             }
 
+            Application.ThreadException += delegate(object s, ThreadExceptionEventArgs e)
+            {
+                MessageBox.Show("Unexpected error:\n\n" + e.Exception.Message,
+                    "GitHub Accounts", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
+            {
+                var ex = e.ExceptionObject as Exception;
+                MessageBox.Show("Unexpected error:\n\n" + (ex != null ? ex.Message : e.ExceptionObject),
+                    "GitHub Accounts", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            };
             Application.Run(new MainForm());
             return 0;
         }

@@ -119,12 +119,41 @@ namespace GhAccounts
             int rc = Run("git.exe", "-C \"" + repo + "\" " + args, out o, out e, 20000, null);
             return rc == 0 ? o.Trim() : "";
         }
+
+        // For writes (remote set-url, config set/unset) where a failure must
+        // reach the user instead of vanishing. `git config --unset` on a key
+        // that was never set exits 5 with no meaningful stderr - that case is
+        // reported as success since there was nothing to change.
+        public static bool GitChecked(string repo, string args, out string error)
+        {
+            string o, e;
+            int rc = Run("git.exe", "-C \"" + repo + "\" " + args, out o, out e, 20000, null);
+            if (rc == 0 || (rc == 5 && args.StartsWith("config --unset")))
+            {
+                error = null;
+                return true;
+            }
+            string first = e.Trim();
+            if (first.Length > 0)
+            {
+                int nl = first.IndexOfAny(new char[] { '\r', '\n' });
+                if (nl >= 0) first = first.Substring(0, nl);
+            }
+            error = first.Length > 0 ? first : ("git exited with code " + rc);
+            return false;
+        }
     }
 
     public static class Store
     {
+        // Set when Load() had to fall back to an empty Config because the
+        // file on disk exists but couldn't be read - lets the caller warn
+        // instead of silently saving over the user's real accounts later.
+        public static string LoadError;
+
         public static Config Load()
         {
+            LoadError = null;
             try
             {
                 if (File.Exists(Env.ConfigPath))
@@ -141,9 +170,10 @@ namespace GhAccounts
                                 c.Accounts[i].Colour = Env.Palette[i % Env.Palette.Length];
                         return c;
                     }
+                    LoadError = "The config file exists but was empty or not valid JSON.";
                 }
             }
-            catch { }
+            catch (Exception ex) { LoadError = ex.Message; }
             return new Config();
         }
 
@@ -404,30 +434,40 @@ namespace GhAccounts
             return r;
         }
 
-        public static void Switch(Config cfg, string path, Account acct)
+        // Returns null on success, or a short message describing what failed.
+        // Partial failure (e.g. remote updated but identity write failed) is
+        // still reported rather than left for the caller to discover later.
+        public static string Switch(Config cfg, string path, Account acct)
         {
             string url = Shell.Git(path, "config remote.origin.url");
             var prefixes = new List<string> {
                 "https://github.com/", "ssh://git@github.com/", "git@github.com:" };
             foreach (Account a in cfg.Accounts) prefixes.Add("git@" + a.Alias + ":");
+            string err;
             foreach (string pre in prefixes)
             {
                 if (url.StartsWith(pre))
                 {
                     string tail = url.Substring(pre.Length);
                     string now = "git@" + acct.Alias + ":" + tail;
-                    if (now != url) Shell.Git(path, "remote set-url origin \"" + now + "\"");
+                    if (now != url && !Shell.GitChecked(path, "remote set-url origin \"" + now + "\"", out err))
+                        return "Could not update the remote URL: " + err;
                     break;
                 }
             }
-            Shell.Git(path, "config --unset user.name");
-            Shell.Git(path, "config --unset user.email");
+            if (!Shell.GitChecked(path, "config --unset user.name", out err))
+                return "Could not clear the local user.name: " + err;
+            if (!Shell.GitChecked(path, "config --unset user.email", out err))
+                return "Could not clear the local user.email: " + err;
             string eff = Shell.Git(path, "config user.email");
             if (!string.Equals(eff, acct.Email, StringComparison.OrdinalIgnoreCase))
             {
-                Shell.Git(path, "config user.name \"" + acct.Name + "\"");
-                Shell.Git(path, "config user.email \"" + acct.Email + "\"");
+                if (!Shell.GitChecked(path, "config user.name \"" + acct.Name + "\"", out err))
+                    return "Could not set user.name: " + err;
+                if (!Shell.GitChecked(path, "config user.email \"" + acct.Email + "\"", out err))
+                    return "Could not set user.email: " + err;
             }
+            return null;
         }
     }
 }
