@@ -133,6 +133,7 @@ namespace GhAccounts
         ComboBox cbTarget;
         NumericUpDown nDepth;
         Label statusLabel;
+        ToolTip tips = new ToolTip { AutoPopDelay = 8000, InitialDelay = 300, ReshowDelay = 100 };
         List<RepoInfo> repos = new List<RepoInfo>();
         Dictionary<string, int> dotIndex = new Dictionary<string, int>();
         ImageList dots = new ImageList();
@@ -285,12 +286,21 @@ namespace GhAccounts
             var page = new TabPage("Repositories");
             var bar = new Panel { Dock = DockStyle.Top, Height = 40 };
 
-            var lbl = new Label { Text = "Switch selected to:", Left = 8, Top = 12, Width = 115, AutoSize = false };
-            cbTarget = new ComboBox { Left = 125, Top = 8, Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
-            var bApply = new Button { Text = "Apply", Left = 313, Top = 7, Width = 80 };
-            var bFix = new Button { Text = "Fix all mismatches", Left = 401, Top = 7, Width = 140 };
-            var bRescan = new Button { Text = "Rescan", Left = 549, Top = 7, Width = 80 };
-            var bOpen = new Button { Text = "Open folder", Left = 637, Top = 7, Width = 100 };
+            var lbl = new Label
+            {
+                Text = "Select repo(s), then:", Left = 8, Top = 12, Width = 150,
+                AutoSize = false, AutoEllipsis = true
+            };
+            cbTarget = new ComboBox { Left = 166, Top = 8, Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
+            var bApply = new Button { Text = "Apply", Left = 324, Top = 7, Width = 80, Enabled = false };
+            var bFix = new Button { Text = "Fix all mismatches", Left = 412, Top = 7, Width = 140 };
+            var bRescan = new Button { Text = "Rescan", Left = 560, Top = 7, Width = 80 };
+            var bOpen = new Button { Text = "Open folder", Left = 648, Top = 7, Width = 100 };
+            tips.SetToolTip(lbl, "Pick one or more repositories in the list below first, " +
+                "then choose which account to switch them to.");
+            tips.SetToolTip(cbTarget, "Account to switch the selected repositories to.");
+            tips.SetToolTip(bApply, "Select one or more repositories below first - " +
+                "this switches only what's selected.");
             bApply.Click += delegate { ApplySelected(); };
             bFix.Click += delegate { FixAll(); };
             bRescan.Click += delegate { Rescan(); };
@@ -311,6 +321,10 @@ namespace GhAccounts
             lvRepos.Columns.Add("Commits as", 160);
             lvRepos.Columns.Add("Repo owner", 140);
             lvRepos.Columns.Add("Notes", 470);
+            lvRepos.SelectedIndexChanged += delegate
+            {
+                bApply.Enabled = lvRepos.SelectedItems.Count > 0;
+            };
             lvRepos.DoubleClick += delegate
             {
                 RepoInfo r = SelectedRepo();
@@ -575,7 +589,14 @@ namespace GhAccounts
             Cursor = Cursors.WaitCursor;
             try
             {
-                foreach (ListViewItem it in lvAccounts.Items)
+                // Test only what's selected; with nothing selected, test everything
+                // (a deliberate bulk action, not the accidental default).
+                var targets = new List<ListViewItem>();
+                if (lvAccounts.SelectedItems.Count > 0)
+                    foreach (ListViewItem it in lvAccounts.SelectedItems) targets.Add(it);
+                else
+                    foreach (ListViewItem it in lvAccounts.Items) targets.Add(it);
+                foreach (ListViewItem it in targets)
                 {
                     var a = it.Tag as Account;
                     Say("Testing " + a.Org + "...");
