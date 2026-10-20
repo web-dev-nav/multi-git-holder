@@ -81,7 +81,10 @@ reminds you that GitHub keeps its own copy until you remove it there as well.
 GitHub and adds the ones that authenticate, naming each from GitHub's own
 `Hi <user>!` reply — so a key can't end up filed under the wrong account.
 *Add account...* handles a new one, including generating the SSH key, copying
-the public half to your clipboard and opening GitHub's "add key" page.
+the public half to your clipboard and opening GitHub's "add key" page. Add any
+organizations that should use that identity (for example `TNHBSupport`) under
+**Organizations / owners**. A GitHub username and an organization are separate:
+one SSH identity may route repositories for several owners.
 
 ![Accounts](docs/accounts.png)
 
@@ -92,6 +95,14 @@ how deep to search. Common locations are detected on first run.
 
 **3. That's it.** Clone anything — paste a plain `https://github.com/...` URL —
 and it is routed to the right key and the right commit identity automatically.
+
+Use **Test repository...** on the Accounts tab to verify an exact private URL
+before cloning it. The test follows the same Git-to-SSH routing as `git clone`
+and does not download or modify the repository.
+
+> Use regular `git clone` for automatic account routing. `gh repo clone` first
+> checks repository access through the GitHub CLI's independently selected
+> account, before Git can apply these SSH routing rules.
 
 The Repositories tab flags anything inconsistent: a repo committing as the wrong
 account for its remote, an identity belonging to neither account, a locally
@@ -104,7 +115,7 @@ Three standard Git and SSH features, wired together:
 | Piece | What it does |
 |---|---|
 | SSH host aliases | `github-<account>` in `~/.ssh/config`, each bound to one key with `IdentitiesOnly yes` |
-| `url.<alias>.insteadOf` | Rewrites any pasted `github.com` URL for that account's org onto its alias, so the right key is used |
+| `url.<alias>.insteadOf` | Rewrites any pasted `github.com` URL for every assigned repository owner or organization onto that account's alias |
 | `includeIf "hasconfig:remote.*.url:…"` | Selects `user.name` / `user.email` from the remote URL (Git 2.36+) |
 
 Everything the app writes lives between markers:
@@ -119,6 +130,9 @@ Only that block is rewritten. Anything else in your `.gitconfig` or
 `.ssh/config` — other hosts, other settings — is left untouched.
 
 Configuration is a single JSON file at `%USERPROFILE%\.gh-accounts.json`.
+Existing configuration files are upgraded automatically: the authenticated
+username becomes the first repository owner, and organizations can then be
+added with **Edit routing**.
 
 ## WSL
 

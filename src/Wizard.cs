@@ -27,7 +27,7 @@ namespace GhAccounts
         int step;
         Label lblStep, lblTitle, lblBlurb;
         Button bBack, bNext, bCancel;
-        TextBox tOrg, tName, tEmail, tKey, tPub;
+        TextBox tOrg, tOwners, tName, tEmail, tKey, tPub;
         RadioButton rExisting, rGenerate;
         Label lblResult, lblGenNote;
         string keyPath = "";
@@ -94,6 +94,16 @@ namespace GhAccounts
                 Left = 132, Top = 136, Width = 380, Height = 46, ForeColor = Color.DimGray,
                 Text = "Leave both blank to use the GitHub noreply address, which\n" +
                        "always works even with \"Keep my email private\" turned on."
+            });
+            p.Controls.Add(new Label { Text = "Organizations / owners", Left = 0, Top = 194, Width = 125 });
+            tOwners = new TextBox { Left = 130, Top = 191, Width = 330, Height = 54,
+                                    Multiline = true, ScrollBars = ScrollBars.Vertical };
+            p.Controls.Add(tOwners);
+            p.Controls.Add(new Label
+            {
+                Left = 132, Top = 249, Width = 380, Height = 34, ForeColor = Color.DimGray,
+                Text = "Optional, one per line. Add organizations such as TNHBSupport\n" +
+                       "whose repositories should use this account."
             });
             return p;
         }
@@ -243,6 +253,7 @@ namespace GhAccounts
             string org = tOrg.Text.Trim();
             if (Result == null) Result = new Account();
             Result.Org = org;
+            Result.Owners = Account.ParseOwners(tOwners.Text, org);
             Result.Id = new string(org.ToLowerInvariant()
                 .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
             Result.Name = tName.Text.Trim().Length > 0 ? tName.Text.Trim() : org;
@@ -275,6 +286,7 @@ namespace GhAccounts
             verified = true;
             if (!string.Equals(who, Result.Org, StringComparison.OrdinalIgnoreCase))
             {
+                string oldOrg = Result.Org;
                 lblResult.ForeColor = Color.FromArgb(180, 83, 9);
                 lblResult.Text = "Connected - but this key belongs to \"" + who + "\",\n" +
                     "not \"" + Result.Org + "\".\n\nGitHub is the authority here, so the account will be\n" +
@@ -285,6 +297,8 @@ namespace GhAccounts
                                   StringComparison.OrdinalIgnoreCase))
                     Result.Email = who + "@users.noreply.github.com";
                 Result.Org = who;
+                Result.Owners = Account.ParseOwners(string.Join("\n", Result.RoutedOwners()
+                    .Where(x => !string.Equals(x, oldOrg, StringComparison.OrdinalIgnoreCase)).ToArray()), who);
                 Result.Id = new string(who.ToLowerInvariant()
                     .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
                 return;

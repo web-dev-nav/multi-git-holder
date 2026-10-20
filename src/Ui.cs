@@ -13,7 +13,7 @@ namespace GhAccounts
 {
     public class AccountDialog : Form
     {
-        TextBox tOrg, tName, tEmail, tKey;
+        TextBox tOrg, tOwners, tName, tEmail, tKey;
         RadioButton rExisting, rGenerate;
         public Account Result;
         public bool GeneratedKey;
@@ -28,41 +28,53 @@ namespace GhAccounts
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(520, 356);
+            ClientSize = new Size(660, 500);
             Font = new Font("Segoe UI", 9f);
+            BackColor = Color.White;
 
             int y = 12;
             Add(new Label
             {
-                Left = 16, Top = y, Width = 484, Height = 44, ForeColor = Color.DimGray,
-                Text = "Sign in to GitHub as this account in your browser first.\n" +
-                       "For a second account use a private/incognito window, or sign out first."
+                Left = 16, Top = y, Width = 624, Height = 44, ForeColor = Color.DimGray,
+                Text = "The SSH key identifies the GitHub user. Repository owners determine which\n" +
+                       "personal accounts and organizations are routed through that key."
             });
             y += 50;
-            Add(new Label { Text = "GitHub username", Left = 16, Top = y + 3, Width = 130 });
-            tOrg = new TextBox { Left = 150, Top = y, Width = 350 };
+            Add(new Label { Text = "GitHub username", Left = 16, Top = y + 3, Width = 145 });
+            tOrg = new TextBox { Left = 170, Top = y, Width = 470 };
             Add(tOrg); y += 32;
 
-            Add(new Label { Text = "Commit name", Left = 16, Top = y + 3, Width = 130 });
-            tName = new TextBox { Left = 150, Top = y, Width = 350 };
+            Add(new Label { Text = "Organizations / owners", Left = 16, Top = y + 3, Width = 145 });
+            tOwners = new TextBox { Left = 170, Top = y, Width = 470, Height = 62,
+                                    Multiline = true, ScrollBars = ScrollBars.Vertical };
+            Add(tOwners); y += 64;
+            Add(new Label
+            {
+                Left = 170, Top = y, Width = 470, Height = 34, ForeColor = Color.DimGray,
+                Text = "One per line, for example TNHBSupport. Your username is always included."
+            });
+            y += 38;
+
+            Add(new Label { Text = "Commit name", Left = 16, Top = y + 3, Width = 145 });
+            tName = new TextBox { Left = 170, Top = y, Width = 470 };
             Add(tName); y += 32;
 
-            Add(new Label { Text = "Commit email", Left = 16, Top = y + 3, Width = 130 });
-            tEmail = new TextBox { Left = 150, Top = y, Width = 350 };
+            Add(new Label { Text = "Commit email", Left = 16, Top = y + 3, Width = 145 });
+            tEmail = new TextBox { Left = 170, Top = y, Width = 470 };
             Add(tEmail); y += 26;
             var hint = new Label
             {
-                Left = 150, Top = y, Width = 350, Height = 30,
+                Left = 170, Top = y, Width = 470, Height = 30,
                 ForeColor = Color.DimGray,
                 Text = "Tip: use ID+username@users.noreply.github.com if the\naccount has \"Keep my email private\" turned on."
             };
             Add(hint); y += 40;
 
-            var gb = new GroupBox { Text = "SSH key", Left = 16, Top = y, Width = 484, Height = 100 };
+            var gb = new GroupBox { Text = "SSH key", Left = 16, Top = y, Width = 624, Height = 100 };
             rExisting = new RadioButton { Text = "Use existing key file", Left = 12, Top = 22, Width = 200, Checked = true };
             rGenerate = new RadioButton { Text = "Generate a new key (no keys yet? pick this)", Left = 12, Top = 68, Width = 320 };
-            tKey = new TextBox { Left = 32, Top = 44, Width = 330 };
-            var bBrowse = new Button { Text = "Browse...", Left = 372, Top = 42, Width = 90 };
+            tKey = new TextBox { Left = 32, Top = 44, Width = 450 };
+            var bBrowse = new Button { Text = "Browse...", Left = 492, Top = 42, Width = 110 };
             bBrowse.Click += delegate
             {
                 var d = new OpenFileDialog();
@@ -73,8 +85,8 @@ namespace GhAccounts
             gb.Controls.AddRange(new Control[] { rExisting, tKey, bBrowse, rGenerate });
             Add(gb);
 
-            var ok = new Button { Text = editing ? "Save" : "Add", Left = 320, Top = 314, Width = 90, DialogResult = DialogResult.None };
-            var cancel = new Button { Text = "Cancel", Left = 416, Top = 314, Width = 90, DialogResult = DialogResult.Cancel };
+            var ok = new Button { Text = editing ? "Save changes" : "Add account", Left = 424, Top = 454, Width = 110, DialogResult = DialogResult.None };
+            var cancel = new Button { Text = "Cancel", Left = 542, Top = 454, Width = 98, DialogResult = DialogResult.Cancel };
             ok.Click += OnOk;
             Add(ok); Add(cancel);
             AcceptButton = ok; CancelButton = cancel;
@@ -83,6 +95,8 @@ namespace GhAccounts
             {
                 tOrg.Text = existing.Org; tName.Text = existing.Name;
                 tEmail.Text = existing.Email; tKey.Text = existing.Key;
+                tOwners.Text = string.Join(Environment.NewLine, existing.RoutedOwners()
+                    .Where(x => !string.Equals(x, existing.Org, StringComparison.OrdinalIgnoreCase)).ToArray());
                 Result = existing;
             }
             tOrg.TextChanged += delegate
@@ -97,6 +111,24 @@ namespace GhAccounts
         {
             string org = tOrg.Text.Trim();
             if (org.Length == 0) { MessageBox.Show(this, "GitHub username is required."); return; }
+            List<string> owners = Account.ParseOwners(tOwners.Text, org);
+            foreach (string owner in owners)
+            {
+                if (owner.Any(ch => !(char.IsLetterOrDigit(ch) || ch == '-')))
+                {
+                    MessageBox.Show(this, "Repository owner names can contain only letters, numbers, and hyphens:\n\n" + owner);
+                    return;
+                }
+                foreach (Account other in cfg.Accounts)
+                {
+                    if (object.ReferenceEquals(other, Result)) continue;
+                    if (other.RoutedOwners().Any(x => string.Equals(x, owner, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        MessageBox.Show(this, "\"" + owner + "\" is already routed through " + other.Org + ".");
+                        return;
+                    }
+                }
+            }
             string id = new string(org.ToLowerInvariant()
                 .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
             string name = tName.Text.Trim().Length > 0 ? tName.Text.Trim() : org;
@@ -114,12 +146,59 @@ namespace GhAccounts
             { MessageBox.Show(this, "Pick an existing private key file, or choose Generate."); return; }
 
             if (Result == null) Result = new Account();
-            Result.Id = id; Result.Org = org; Result.Name = name;
+            Result.Id = id; Result.Org = org; Result.Owners = owners; Result.Name = name;
             Result.Email = email; Result.Key = key;
             if (string.IsNullOrEmpty(Result.Colour))
                 Result.Colour = Env.Palette[cfg.Accounts.Count % Env.Palette.Length];
             DialogResult = DialogResult.OK;
             Close();
+        }
+    }
+
+    public class RepositoryTestDialog : Form
+    {
+        TextBox tUrl;
+        public string RepositoryUrl { get { return tUrl.Text.Trim(); } }
+
+        public RepositoryTestDialog(Account account)
+        {
+            Text = "Test private repository access";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false; MinimizeBox = false;
+            StartPosition = FormStartPosition.CenterParent;
+            ClientSize = new Size(680, 238);
+            Font = new Font("Segoe UI", 9f);
+            BackColor = Color.White;
+
+            var title = new Label
+            {
+                Left = 20, Top = 16, Width = 640, Height = 28,
+                Font = new Font("Segoe UI", 12f, FontStyle.Bold),
+                Text = "Verify routing and access as " + account.Org
+            };
+            var owners = new Label
+            {
+                Left = 20, Top = 48, Width = 640, Height = 38, ForeColor = Color.DimGray,
+                Text = "Routed owners: " + string.Join(", ", account.RoutedOwners().ToArray()) + "\n" +
+                       "This uses Git and SSH—the same path as a normal git clone."
+            };
+            var prompt = new Label { Left = 20, Top = 100, Width = 640, Text = "Private repository URL" };
+            string defaultOwner = account.RoutedOwners().Count > 1
+                ? account.RoutedOwners()[1] : account.RoutedOwners()[0];
+            tUrl = new TextBox
+            {
+                Left = 20, Top = 122, Width = 640,
+                Text = "https://github.com/" + defaultOwner + "/owner/repository.git"
+            };
+            var note = new Label
+            {
+                Left = 20, Top = 151, Width = 640, Height = 34, ForeColor = Color.DimGray,
+                Text = "Paste the exact GitHub URL. The test reads refs only; it does not clone or modify the repository."
+            };
+            var test = new Button { Text = "Run test", Left = 458, Top = 194, Width = 96, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = "Cancel", Left = 562, Top = 194, Width = 98, DialogResult = DialogResult.Cancel };
+            Controls.AddRange(new Control[] { title, owners, prompt, tUrl, note, test, cancel });
+            AcceptButton = test; CancelButton = cancel;
         }
     }
 
@@ -153,8 +232,8 @@ namespace GhAccounts
                     "GitHub Accounts", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             Text = "GitHub Accounts";
-            ClientSize = new Size(1040, 580);
-            MinimumSize = new Size(760, 420);
+            ClientSize = new Size(1120, 640);
+            MinimumSize = new Size(900, 500);
             Font = new Font("Segoe UI", 9f);
             StartPosition = FormStartPosition.CenterScreen;
 
@@ -319,7 +398,7 @@ namespace GhAccounts
             };
             lvRepos.Columns.Add("Repository", 220);
             lvRepos.Columns.Add("Commits as", 160);
-            lvRepos.Columns.Add("Repo owner", 140);
+            lvRepos.Columns.Add("Routes through", 140);
             lvRepos.Columns.Add("Notes", 470);
             lvRepos.SelectedIndexChanged += delegate
             {
@@ -444,35 +523,50 @@ namespace GhAccounts
         TabPage BuildAccountTab()
         {
             var page = new TabPage("Accounts");
-            var bar = new Panel { Dock = DockStyle.Top, Height = 40 };
-            var bAdd = new Button { Text = "Add account...", Left = 8, Top = 7, Width = 110 };
-            var bEdit = new Button { Text = "Edit", Left = 126, Top = 7, Width = 70 };
-            var bDel = new Button { Text = "Remove", Left = 204, Top = 7, Width = 80 };
-            var bTest = new Button { Text = "Test connection", Left = 292, Top = 7, Width = 120 };
-            var bCopy = new Button { Text = "Copy public key", Left = 420, Top = 7, Width = 120 };
-            var bGh = new Button { Text = "Add key on GitHub", Left = 548, Top = 7, Width = 140 };
-            var bDetect = new Button { Text = "Detect keys...", Left = 696, Top = 7, Width = 110 };
+            var header = new Panel { Dock = DockStyle.Top, Height = 104, BackColor = Color.White };
+            var title = new Label
+            {
+                Text = "GitHub identities and repository routing", Left = 12, Top = 10,
+                Width = 700, Height = 24, Font = new Font("Segoe UI", 11f, FontStyle.Bold)
+            };
+            var subtitle = new Label
+            {
+                Text = "Each SSH identity can handle personal repositories plus one or more organizations.",
+                Left = 12, Top = 36, Width = 850, Height = 22, ForeColor = Color.DimGray
+            };
+            var bar = new Panel { Left = 4, Top = 62, Width = 1090, Height = 40, Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top };
+            var bAdd = new Button { Text = "Add account...", Left = 8, Top = 5, Width = 108 };
+            var bEdit = new Button { Text = "Edit routing", Left = 124, Top = 5, Width = 96 };
+            var bDel = new Button { Text = "Remove", Left = 228, Top = 5, Width = 76 };
+            var bTest = new Button { Text = "Test SSH", Left = 312, Top = 5, Width = 88 };
+            var bTestRepo = new Button { Text = "Test repository...", Left = 408, Top = 5, Width = 126 };
+            var bCopy = new Button { Text = "Copy public key", Left = 542, Top = 5, Width = 116 };
+            var bGh = new Button { Text = "Add key on GitHub", Left = 666, Top = 5, Width = 128 };
+            var bDetect = new Button { Text = "Detect keys...", Left = 802, Top = 5, Width = 108 };
             bDetect.Click += delegate { DetectKeys(); };
             bAdd.Click += delegate { AddAccount(); };
             bEdit.Click += delegate { EditAccount(); };
             bDel.Click += delegate { RemoveAccount(); };
             bTest.Click += delegate { TestAccounts(); };
+            bTestRepo.Click += delegate { TestRepository(); };
             bCopy.Click += delegate { CopyPub(); };
             bGh.Click += delegate { Process.Start("https://github.com/settings/ssh/new"); };
-            bar.Controls.AddRange(new Control[] { bAdd, bEdit, bDel, bTest, bCopy, bGh, bDetect });
+            bar.Controls.AddRange(new Control[] { bAdd, bEdit, bDel, bTest, bTestRepo, bCopy, bGh, bDetect });
+            header.Controls.AddRange(new Control[] { title, subtitle, bar });
 
             lvAccounts = new ListView
             {
                 Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true,
                 HideSelection = false, SmallImageList = dots
             };
-            lvAccounts.Columns.Add("GitHub user", 160);
-            lvAccounts.Columns.Add("Commit identity", 300);
-            lvAccounts.Columns.Add("SSH key", 280);
-            lvAccounts.Columns.Add("Status", 160);
+            lvAccounts.Columns.Add("GitHub user", 145);
+            lvAccounts.Columns.Add("Routes repository owners", 250);
+            lvAccounts.Columns.Add("Commit identity", 270);
+            lvAccounts.Columns.Add("SSH key", 210);
+            lvAccounts.Columns.Add("Status", 210);
             lvAccounts.DoubleClick += delegate { EditAccount(); };
             page.Controls.Add(lvAccounts);
-            page.Controls.Add(bar);
+            page.Controls.Add(header);
             return page;
         }
 
@@ -486,9 +580,10 @@ namespace GhAccounts
                 var it = new ListViewItem(a.Org);
                 it.Tag = a;
                 it.ImageIndex = dotIndex[a.Id];
+                it.SubItems.Add(string.Join(", ", a.RoutedOwners().ToArray()));
                 it.SubItems.Add(a.Name + "  <" + a.Email + ">");
                 it.SubItems.Add(Path.GetFileName(a.Key));
-                it.SubItems.Add("not tested");
+                it.SubItems.Add("Ready to test");
                 lvAccounts.Items.Add(it);
                 cbTarget.Items.Add(a.Org);
             }
@@ -602,11 +697,11 @@ namespace GhAccounts
                     Say("Testing " + a.Org + "...");
                     string who;
                     bool ok = Gh.Verify(a, out who);
-                    it.SubItems[3].Text = ok ? "OK - Hi " + who + "!" : "FAILED - " + who;
+                    it.SubItems[4].Text = ok ? "Connected as " + who : "FAILED - " + who;
                     it.ForeColor = ok ? Color.FromArgb(0, 110, 40) : Color.Firebrick;
                     if (ok && !string.Equals(who, a.Org, StringComparison.OrdinalIgnoreCase))
                     {
-                        it.SubItems[3].Text = "key belongs to " + who + ", not " + a.Org;
+                        it.SubItems[4].Text = "Key belongs to " + who + ", not " + a.Org;
                         if (ReconcileOrg(a, who)) { Say("Corrected to " + who + "."); return; }
                     }
                 }
@@ -622,15 +717,19 @@ namespace GhAccounts
             if (string.Equals(a.Org, who, StringComparison.OrdinalIgnoreCase)) return false;
             if (MessageBox.Show(this,
                     "This key authenticates as \"" + who + "\", but the account is set up as \"" +
-                    a.Org + "\".\n\nURL matching uses the username, so it must be exact.\n\n" +
+                    a.Org + "\".\n\nThe authenticated username must be exact. Organization routing\n" +
+                    "is configured separately and will be preserved.\n\n" +
                     "Change this account to \"" + who + "\"?",
                     "Username mismatch", MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning) != DialogResult.Yes) return false;
             string oldEmail = a.Org + "@users.noreply.github.com";
+            string oldOrg = a.Org;
             if (string.Equals(a.Email, oldEmail, StringComparison.OrdinalIgnoreCase))
                 a.Email = who + "@users.noreply.github.com";
             if (string.Equals(a.Name, a.Org, StringComparison.OrdinalIgnoreCase)) a.Name = who;
             a.Org = who;
+            a.Owners = Account.ParseOwners(string.Join("\n", a.RoutedOwners()
+                .Where(x => !string.Equals(x, oldOrg, StringComparison.OrdinalIgnoreCase)).ToArray()), who);
             a.Id = new string(who.ToLowerInvariant()
                 .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
             Persist(); RefreshAccounts(); Rescan();
@@ -674,7 +773,7 @@ namespace GhAccounts
                         .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
                     cfg.Accounts.Add(new Account
                     {
-                        Id = id, Org = who, Name = who,
+                        Id = id, Org = who, Owners = Account.ParseOwners(null, who), Name = who,
                         Email = who + "@users.noreply.github.com",
                         Key = key,
                         Colour = Env.Palette[cfg.Accounts.Count % Env.Palette.Length]
@@ -705,6 +804,78 @@ namespace GhAccounts
             if (pub.Length == 0) { Say("No .pub file next to " + a.Key); return; }
             Clipboard.SetText(pub);
             Say("Public key copied. Paste it at github.com/settings/ssh/new while signed in as " + a.Org + ".");
+        }
+
+        void TestRepository()
+        {
+            if (lvAccounts.SelectedItems.Count == 0)
+            {
+                Say("Select the GitHub account that should access the repository.", true);
+                return;
+            }
+            var account = lvAccounts.SelectedItems[0].Tag as Account;
+            var dialog = new RepositoryTestDialog(account);
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            string url = dialog.RepositoryUrl;
+            if (url.Length == 0 || url.IndexOf('"') >= 0 ||
+                !(url.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase) ||
+                  url.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase) ||
+                  url.StartsWith("ssh://git@github.com/", StringComparison.OrdinalIgnoreCase)))
+            {
+                MessageBox.Show(this,
+                    "Enter a complete GitHub repository URL, for example:\n\n" +
+                    "https://github.com/TNHBSupport/clb-rental-application.git",
+                    "Invalid repository URL", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            Account routed = Repos.ByRemote(cfg, url);
+            if (routed == null)
+            {
+                MessageBox.Show(this,
+                    "This repository owner is not assigned to any account.\n\n" +
+                    "Edit " + account.Org + " and add the organization or owner shown in the URL.",
+                    "No routing rule", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (!object.ReferenceEquals(routed, account))
+            {
+                MessageBox.Show(this,
+                    "This URL is currently routed through " + routed.Org + ", not " + account.Org + ".\n\n" +
+                    "Edit the account routing before testing again.",
+                    "Different account selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            Persist();
+            Cursor = Cursors.WaitCursor;
+            Say("Testing private repository access as " + account.Org + "...");
+            string output, error;
+            int rc;
+            try
+            {
+                rc = Shell.Run("git.exe", "ls-remote \"" + url + "\" HEAD",
+                               out output, out error, 60000, null);
+            }
+            finally { Cursor = Cursors.Default; }
+
+            if (rc == 0)
+            {
+                MessageBox.Show(this,
+                    "Access confirmed.\n\n" + account.Org + " can read:\n" + url +
+                    "\n\nA normal git clone of this HTTPS URL will use the same SSH identity.",
+                    "Repository access works", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Say("Repository access confirmed for " + account.Org + ".");
+                return;
+            }
+
+            string detail = (error + "\n" + output).Trim();
+            if (detail.Length > 900) detail = detail.Substring(0, 900) + "...";
+            MessageBox.Show(this,
+                "Git could not read this repository as " + account.Org + ".\n\n" + detail +
+                "\n\nConfirm that this SSH key's GitHub user has repository access.",
+                "Repository access failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Say("Repository access failed for " + account.Org + ".", true);
         }
 
         // ---------------------------------------------------------- folders
@@ -795,8 +966,8 @@ namespace GhAccounts
                 Console.WriteLine("roots  : " + string.Join(", ", cfg.Roots.ToArray())
                                   + "  (depth " + cfg.Depth + ")");
                 foreach (Account a in cfg.Accounts)
-                    Console.WriteLine(string.Format("account: {0,-14} {1,-38} {2}",
-                        a.Org, a.Email, Path.GetFileName(a.Key)));
+                    Console.WriteLine(string.Format("account: {0,-14} owners=[{1}] {2}",
+                        a.Org, string.Join(",", a.RoutedOwners().ToArray()), Path.GetFileName(a.Key)));
                 Console.WriteLine();
                 foreach (string p in Repos.Find(cfg))
                 {

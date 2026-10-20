@@ -17,7 +17,8 @@ namespace GhAccounts
     public class Account
     {
         public string Id { get; set; }
-        public string Org { get; set; }      // GitHub username
+        public string Org { get; set; }      // GitHub username authenticated by Key
+        public List<string> Owners { get; set; } // repository users/orgs routed to this account
         public string Name { get; set; }     // commit author name
         public string Email { get; set; }    // commit author email
         public string Key { get; set; }      // path to private key
@@ -25,6 +26,37 @@ namespace GhAccounts
         // Derived - not persisted, or the JSON fills up with computed junk.
         [ScriptIgnore]
         public string Alias { get { return "github-" + Id; } }
+
+        // Older config files predate Owners. Always include the authenticated
+        // username, then add any organizations or other owners assigned to it.
+        public List<string> RoutedOwners()
+        {
+            var result = new List<string>();
+            AddOwner(result, Org);
+            if (Owners != null)
+                foreach (string owner in Owners) AddOwner(result, owner);
+            return result;
+        }
+
+        public static List<string> ParseOwners(string text, string username)
+        {
+            var result = new List<string>();
+            AddOwner(result, username);
+            if (!string.IsNullOrEmpty(text))
+                foreach (string part in text.Split(new char[] { ',', ';', '\r', '\n' },
+                                                   StringSplitOptions.RemoveEmptyEntries))
+                    AddOwner(result, part);
+            return result;
+        }
+
+        static void AddOwner(List<string> owners, string value)
+        {
+            string owner = (value ?? "").Trim();
+            if (owner.Length == 0) return;
+            foreach (string existing in owners)
+                if (string.Equals(existing, owner, StringComparison.OrdinalIgnoreCase)) return;
+            owners.Add(owner);
+        }
         [ScriptIgnore]
         public Color Dot
         {
@@ -166,8 +198,12 @@ namespace GhAccounts
                         if (c.Roots == null) c.Roots = new List<string>();
                         if (c.Depth <= 0) c.Depth = 3;
                         for (int i = 0; i < c.Accounts.Count; i++)
+                        {
+                            if (c.Accounts[i].Owners == null || c.Accounts[i].Owners.Count == 0)
+                                c.Accounts[i].Owners = Account.ParseOwners(null, c.Accounts[i].Org);
                             if (string.IsNullOrEmpty(c.Accounts[i].Colour))
                                 c.Accounts[i].Colour = Env.Palette[i % Env.Palette.Length];
+                        }
                         return c;
                     }
                     LoadError = "The config file exists but was empty or not valid JSON.";
@@ -245,10 +281,13 @@ namespace GhAccounts
                 string idFile = Path.Combine(Env.Home, ".gitconfig-" + a.Id);
                 File.WriteAllText(idFile,
                     "[user]\n\tname = " + a.Name + "\n\temail = " + a.Email + "\n");
-                gc.Append("[url \"git@" + a.Alias + ":" + a.Org + "/\"]\n");
-                gc.Append("\tinsteadOf = https://github.com/" + a.Org + "/\n");
-                gc.Append("\tinsteadOf = git@github.com:" + a.Org + "/\n");
-                gc.Append("\tinsteadOf = ssh://git@github.com/" + a.Org + "/\n");
+                foreach (string owner in a.RoutedOwners())
+                {
+                    gc.Append("[url \"git@" + a.Alias + ":" + owner + "/\"]\n");
+                    gc.Append("\tinsteadOf = https://github.com/" + owner + "/\n");
+                    gc.Append("\tinsteadOf = git@github.com:" + owner + "/\n");
+                    gc.Append("\tinsteadOf = ssh://git@github.com/" + owner + "/\n");
+                }
             }
             gc.Append("\n");
             foreach (Account a in cfg.Accounts)
@@ -256,15 +295,18 @@ namespace GhAccounts
                 string idFile = Env.Fwd(Path.Combine(Env.Home, ".gitconfig-" + a.Id));
                 // "**" degrades to "*" mid-token and cannot cross "//", so the
                 // https and ssh:// forms are spelled out in full.
-                string[] pats = {
-                    "**" + a.Alias + ":" + a.Org + "/**",
-                    "**github.com:" + a.Org + "/**",
-                    "https://github.com/" + a.Org + "/**",
-                    "ssh://git@github.com/" + a.Org + "/**" };
-                foreach (string p in pats)
+                foreach (string owner in a.RoutedOwners())
                 {
-                    gc.Append("[includeIf \"hasconfig:remote.*.url:" + p + "\"]\n");
-                    gc.Append("\tpath = " + idFile + "\n");
+                    string[] pats = {
+                        "**" + a.Alias + ":" + owner + "/**",
+                        "**github.com:" + owner + "/**",
+                        "https://github.com/" + owner + "/**",
+                        "ssh://git@github.com/" + owner + "/**" };
+                    foreach (string p in pats)
+                    {
+                        gc.Append("[includeIf \"hasconfig:remote.*.url:" + p + "\"]\n");
+                        gc.Append("\tpath = " + idFile + "\n");
+                    }
                 }
             }
             Splice(Path.Combine(Env.Home, ".gitconfig"), gc.ToString());
@@ -413,9 +455,13 @@ namespace GhAccounts
             string u = url.ToLowerInvariant();
             foreach (Account a in cfg.Accounts)
             {
-                string org = (a.Org ?? "").ToLowerInvariant();
-                if (org.Length > 0 && (u.Contains("/" + org + "/") || u.Contains(":" + org + "/")))
-                    return a;
+                foreach (string routedOwner in a.RoutedOwners())
+                {
+                    string owner = routedOwner.ToLowerInvariant();
+                    if (owner.Length > 0 &&
+                        (u.Contains("/" + owner + "/") || u.Contains(":" + owner + "/")))
+                        return a;
+                }
             }
             return null;
         }
